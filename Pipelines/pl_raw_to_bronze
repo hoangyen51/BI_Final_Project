@@ -1,0 +1,575 @@
+{
+    "name": "pl_raw_to_bronze",
+    "properties": {
+        "activities": [
+            {
+                "name": "Get All Tables",
+                "type": "Lookup",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "sqlReaderQuery": {
+                            "value": "@concat(\n   'SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = ''', \n   pipeline().parameters.p_table_type, \n   ''' AND TABLE_SCHEMA NOT IN (''audit'', ''test'')'\n)",
+                            "type": "Expression"
+                        },
+                        "queryTimeout": "02:00:00",
+                        "partitionOption": "None"
+                    },
+                    "dataset": {
+                        "referenceName": "ds_sql_final",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "p_sql_schema": "'a'",
+                            "p_sql_table_name": "'aa'"
+                        }
+                    },
+                    "firstRowOnly": false
+                }
+            },
+            {
+                "name": "ForEach Table",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "Get All Tables",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('Get All Tables').output.value",
+                        "type": "Expression"
+                    },
+                    "batchCount": 1,
+                    "activities": [
+                        {
+                            "name": "File Already Existed in Bronze",
+                            "type": "GetMetadata",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "dataset": {
+                                    "referenceName": "ds_adls_final",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "p_container": "final",
+                                        "p_directory": "bronze",
+                                        "p_file_name": {
+                                            "value": "@concat(item().TABLE_SCHEMA,'.',item().TABLE_NAME,'.parquet')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                },
+                                "fieldList": [
+                                    "exists"
+                                ],
+                                "storeSettings": {
+                                    "type": "AzureBlobFSReadSettings",
+                                    "recursive": true,
+                                    "enablePartitionDiscovery": false
+                                },
+                                "formatSettings": {
+                                    "type": "ParquetReadSettings"
+                                }
+                            }
+                        },
+                        {
+                            "name": "If File Already Existed in Bronze",
+                            "type": "IfCondition",
+                            "dependsOn": [
+                                {
+                                    "activity": "File Already Existed in Bronze",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "expression": {
+                                    "value": "@equals(activity('File Already Existed in Bronze').output.exists,true )",
+                                    "type": "Expression"
+                                },
+                                "ifTrueActivities": [
+                                    {
+                                        "name": "Archive File",
+                                        "type": "Copy",
+                                        "dependsOn": [],
+                                        "policy": {
+                                            "timeout": "0.12:00:00",
+                                            "retry": 0,
+                                            "retryIntervalInSeconds": 30,
+                                            "secureOutput": false,
+                                            "secureInput": false
+                                        },
+                                        "userProperties": [],
+                                        "typeProperties": {
+                                            "source": {
+                                                "type": "ParquetSource",
+                                                "storeSettings": {
+                                                    "type": "AzureBlobFSReadSettings",
+                                                    "recursive": true,
+                                                    "enablePartitionDiscovery": false
+                                                },
+                                                "formatSettings": {
+                                                    "type": "ParquetReadSettings"
+                                                }
+                                            },
+                                            "sink": {
+                                                "type": "ParquetSink",
+                                                "storeSettings": {
+                                                    "type": "AzureBlobFSWriteSettings"
+                                                },
+                                                "formatSettings": {
+                                                    "type": "ParquetWriteSettings"
+                                                }
+                                            },
+                                            "enableStaging": false,
+                                            "translator": {
+                                                "type": "TabularTranslator",
+                                                "typeConversion": true,
+                                                "typeConversionSettings": {
+                                                    "allowDataTruncation": true,
+                                                    "treatBooleanAsNumber": false
+                                                }
+                                            }
+                                        },
+                                        "inputs": [
+                                            {
+                                                "referenceName": "ds_adls_final",
+                                                "type": "DatasetReference",
+                                                "parameters": {
+                                                    "p_container": "final",
+                                                    "p_directory": "bronze",
+                                                    "p_file_name": {
+                                                        "value": "@concat(item().TABLE_SCHEMA,'.',item().TABLE_NAME,'.parquet')",
+                                                        "type": "Expression"
+                                                    }
+                                                }
+                                            }
+                                        ],
+                                        "outputs": [
+                                            {
+                                                "referenceName": "ds_adls_final",
+                                                "type": "DatasetReference",
+                                                "parameters": {
+                                                    "p_container": "final",
+                                                    "p_directory": "bronze",
+                                                    "p_file_name": {
+                                                        "value": "@concat(\n   '/archive/', \n   formatDateTime(addHours(utcNow(), 7), 'yyyy'), '/',\n   formatDateTime(addHours(utcNow(), 7), 'MM'), \n   formatDateTime(addHours(utcNow(), 7), 'dd'), '/',\n   item().TABLE_SCHEMA, '.', item().TABLE_NAME,'.parquet'\n)\n",
+                                                        "type": "Expression"
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "Lookup last_updated in Raw",
+                            "type": "Lookup",
+                            "dependsOn": [
+                                {
+                                    "activity": "If File Already Existed in Bronze",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "AzureSqlSource",
+                                    "sqlReaderQuery": {
+                                        "value": "@concat(\n   'SELECT MAX(last_updated) AS last_updated FROM ', \n   item().TABLE_SCHEMA, '.', \n   item().TABLE_NAME\n)\n",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "02:00:00",
+                                    "partitionOption": "None"
+                                },
+                                "dataset": {
+                                    "referenceName": "ds_sql_final",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "p_sql_schema": "'a'",
+                                        "p_sql_table_name": "'aa'"
+                                    }
+                                },
+                                "firstRowOnly": false
+                            }
+                        },
+                        {
+                            "name": "Lookup lastest event_run in audit_file",
+                            "type": "Lookup",
+                            "dependsOn": [
+                                {
+                                    "activity": "If File Already Existed in Bronze",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "AzureSqlSource",
+                                    "sqlReaderQuery": {
+                                        "value": "@concat(\n    'SELECT COALESCE(MAX(event_time), ''2000-01-01'') AS last_run_time ',\n    'FROM audit.audit_file ',\n    'WHERE table_name = ''', item().TABLE_SCHEMA, '.', item().TABLE_NAME, ''''\n)\n",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "02:00:00",
+                                    "partitionOption": "None"
+                                },
+                                "dataset": {
+                                    "referenceName": "ds_sql_final",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "p_sql_schema": "'a'",
+                                        "p_sql_table_name": "'aa'"
+                                    }
+                                },
+                                "firstRowOnly": false
+                            }
+                        },
+                        {
+                            "name": "Lookup geography Columns",
+                            "type": "Lookup",
+                            "dependsOn": [
+                                {
+                                    "activity": "If File Already Existed in Bronze",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "AzureSqlSource",
+                                    "sqlReaderQuery": {
+                                        "value": "@concat(\n   'SELECT STRING_AGG(COLUMN_NAME, '','') AS ColumnsList FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ''', \n   item().TABLE_SCHEMA, \n   ''' AND TABLE_NAME = ''', \n   item().TABLE_NAME, \n   ''' AND DATA_TYPE = ''geography'''\n)\n",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "02:00:00",
+                                    "partitionOption": "None"
+                                },
+                                "dataset": {
+                                    "referenceName": "ds_sql_final",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "p_sql_schema": "'a'",
+                                        "p_sql_table_name": "'aa'"
+                                    }
+                                },
+                                "firstRowOnly": false
+                            }
+                        },
+                        {
+                            "name": "If Geography Columns",
+                            "type": "IfCondition",
+                            "dependsOn": [
+                                {
+                                    "activity": "Lookup last_updated in Raw",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                {
+                                    "activity": "Lookup geography Columns",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                },
+                                {
+                                    "activity": "Lookup lastest event_run in audit_file",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "expression": {
+                                    "value": "@if(not(empty(activity('Lookup geography Columns').output.value[0].ColumnsList)), true, false)",
+                                    "type": "Expression"
+                                },
+                                "ifFalseActivities": [
+                                    {
+                                        "name": "Copy data1",
+                                        "type": "Copy",
+                                        "dependsOn": [],
+                                        "policy": {
+                                            "timeout": "0.12:00:00",
+                                            "retry": 0,
+                                            "retryIntervalInSeconds": 30,
+                                            "secureOutput": false,
+                                            "secureInput": false
+                                        },
+                                        "userProperties": [],
+                                        "typeProperties": {
+                                            "source": {
+                                                "type": "AzureSqlSource",
+                                                "sqlReaderQuery": {
+                                                    "value": "@concat(\n   'SELECT * FROM ', item().TABLE_SCHEMA, '.', item().TABLE_NAME,\n   ' WHERE last_updated > ''', activity('Lookup lastest event_run in audit_file').output.value[0].last_run_time, '''',\n   ' AND last_updated <= ''', activity('Lookup last_updated in Raw').output.value[0].last_updated, ''''\n)\n",
+                                                    "type": "Expression"
+                                                },
+                                                "queryTimeout": "02:00:00",
+                                                "partitionOption": "None"
+                                            },
+                                            "sink": {
+                                                "type": "ParquetSink",
+                                                "storeSettings": {
+                                                    "type": "AzureBlobFSWriteSettings",
+                                                    "copyBehavior": "PreserveHierarchy"
+                                                },
+                                                "formatSettings": {
+                                                    "type": "ParquetWriteSettings"
+                                                }
+                                            },
+                                            "enableStaging": false,
+                                            "translator": {
+                                                "type": "TabularTranslator",
+                                                "typeConversion": true,
+                                                "typeConversionSettings": {
+                                                    "allowDataTruncation": true,
+                                                    "treatBooleanAsNumber": false
+                                                }
+                                            }
+                                        },
+                                        "inputs": [
+                                            {
+                                                "referenceName": "ds_sql_final",
+                                                "type": "DatasetReference",
+                                                "parameters": {
+                                                    "p_sql_schema": "'a'",
+                                                    "p_sql_table_name": "'aa'"
+                                                }
+                                            }
+                                        ],
+                                        "outputs": [
+                                            {
+                                                "referenceName": "ds_adls_final",
+                                                "type": "DatasetReference",
+                                                "parameters": {
+                                                    "p_container": "final",
+                                                    "p_directory": "bronze",
+                                                    "p_file_name": {
+                                                        "value": "@concat(item().TABLE_SCHEMA,'.',item().TABLE_NAME,'.parquet')",
+                                                        "type": "Expression"
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "ifTrueActivities": [
+                                    {
+                                        "name": "Lookup Not geography Columns",
+                                        "type": "Lookup",
+                                        "dependsOn": [],
+                                        "policy": {
+                                            "timeout": "0.12:00:00",
+                                            "retry": 0,
+                                            "retryIntervalInSeconds": 30,
+                                            "secureOutput": false,
+                                            "secureInput": false
+                                        },
+                                        "userProperties": [],
+                                        "typeProperties": {
+                                            "source": {
+                                                "type": "AzureSqlSource",
+                                                "sqlReaderQuery": {
+                                                    "value": "@concat(\n   'SELECT STRING_AGG(COLUMN_NAME, '','') AS ColumnsList FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ''', \n   item().TABLE_SCHEMA, \n   ''' AND TABLE_NAME = ''', \n   item().TABLE_NAME, \n   ''' AND DATA_TYPE <> ''geography'''\n)\n",
+                                                    "type": "Expression"
+                                                },
+                                                "queryTimeout": "02:00:00",
+                                                "partitionOption": "None"
+                                            },
+                                            "dataset": {
+                                                "referenceName": "ds_sql_final",
+                                                "type": "DatasetReference",
+                                                "parameters": {
+                                                    "p_sql_schema": "'a'",
+                                                    "p_sql_table_name": "'aa'"
+                                                }
+                                            },
+                                            "firstRowOnly": false
+                                        }
+                                    },
+                                    {
+                                        "name": "Copy data Transformed",
+                                        "type": "Copy",
+                                        "dependsOn": [
+                                            {
+                                                "activity": "Lookup Not geography Columns",
+                                                "dependencyConditions": [
+                                                    "Succeeded"
+                                                ]
+                                            }
+                                        ],
+                                        "policy": {
+                                            "timeout": "0.12:00:00",
+                                            "retry": 0,
+                                            "retryIntervalInSeconds": 30,
+                                            "secureOutput": false,
+                                            "secureInput": false
+                                        },
+                                        "userProperties": [],
+                                        "typeProperties": {
+                                            "source": {
+                                                "type": "AzureSqlSource",
+                                                "sqlReaderQuery": {
+                                                    "value": "@concat(\n   'SELECT ', \n   activity('Lookup Not geography Columns').output.value[0].ColumnsList, ', ',\n   activity('Lookup geography Columns').output.value[0].ColumnsList, '.ToString() ', \n   activity('Lookup geography Columns').output.value[0].ColumnsList, \n   ' FROM ', item().TABLE_SCHEMA, '.', item().TABLE_NAME,\n   ' WHERE last_updated > ''', activity('Lookup lastest event_run in audit_file').output.value[0].last_run_time, '''',\n   ' AND last_updated <= ''', activity('Lookup last_updated in Raw').output.value[0].last_updated, ''''\n)",
+                                                    "type": "Expression"
+                                                },
+                                                "queryTimeout": "02:00:00",
+                                                "partitionOption": "None"
+                                            },
+                                            "sink": {
+                                                "type": "ParquetSink",
+                                                "storeSettings": {
+                                                    "type": "AzureBlobFSWriteSettings"
+                                                },
+                                                "formatSettings": {
+                                                    "type": "ParquetWriteSettings"
+                                                }
+                                            },
+                                            "enableStaging": false,
+                                            "translator": {
+                                                "type": "TabularTranslator",
+                                                "typeConversion": true,
+                                                "typeConversionSettings": {
+                                                    "allowDataTruncation": true,
+                                                    "treatBooleanAsNumber": false
+                                                }
+                                            }
+                                        },
+                                        "inputs": [
+                                            {
+                                                "referenceName": "ds_sql_final",
+                                                "type": "DatasetReference",
+                                                "parameters": {
+                                                    "p_sql_schema": "'a'",
+                                                    "p_sql_table_name": "'aa'"
+                                                }
+                                            }
+                                        ],
+                                        "outputs": [
+                                            {
+                                                "referenceName": "ds_adls_final",
+                                                "type": "DatasetReference",
+                                                "parameters": {
+                                                    "p_container": "final",
+                                                    "p_directory": "bronze",
+                                                    "p_file_name": {
+                                                        "value": "@concat(item().TABLE_SCHEMA,'.',item().TABLE_NAME,'.parquet')",
+                                                        "type": "Expression"
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "Update audit",
+                            "type": "Lookup",
+                            "dependsOn": [
+                                {
+                                    "activity": "If Geography Columns",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "source": {
+                                    "type": "AzureSqlSource",
+                                    "sqlReaderQuery": {
+                                        "value": "@concat(\n    'DECLARE @InsertedId INT; ',\n    'INSERT INTO audit.audit_file (table_name, number_of_rows_copied, user_id, event_time) VALUES (',\n    '''', item().TABLE_SCHEMA, '.', item().TABLE_NAME, ''', ',\n    string(\n        if(\n            not(empty(activity('Lookup geography Columns').output.value[0].ColumnsList)),\n            activity('Copy data Transformed').output.rowsCopied,\n            activity('Copy data1').output.rowsCopied\n        )\n    ), ', ',\n    '''', 'system_user', ''', ',\n    '''', formatDateTime(addHours(utcNow(), 7), 'yyyy-MM-dd HH:mm:ss'), '''',\n    '); ',\n    'SET @InsertedId = SCOPE_IDENTITY(); ',\n    'SELECT @InsertedId AS AuditID, ',\n    '''', item().TABLE_SCHEMA, '.', item().TABLE_NAME, ''' AS TableName, ',\n    string(\n        if(\n            not(empty(activity('Lookup geography Columns').output.value[0].ColumnsList)),\n            activity('Copy data Transformed').output.rowsCopied,\n            activity('Copy data1').output.rowsCopied\n        )\n    ), ' AS RowsCopied, ',\n    '''system_user'' AS InsertedBy, ',\n    '''', formatDateTime(addHours(utcNow(), 7), 'yyyy-MM-dd HH:mm:ss'), ''' AS InsertTime;'\n)\n",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "02:00:00",
+                                    "partitionOption": "None"
+                                },
+                                "dataset": {
+                                    "referenceName": "ds_sql_final",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "p_sql_schema": "'a'",
+                                        "p_sql_table_name": "'aa'"
+                                    }
+                                },
+                                "firstRowOnly": false
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "parameters": {
+            "p_table_type": {
+                "type": "string",
+                "defaultValue": "BASE TABLE"
+            }
+        },
+        "variables": {
+            "file": {
+                "type": "String"
+            }
+        },
+        "annotations": [],
+        "lastPublishTime": "2025-03-19T00:40:22Z"
+    },
+    "type": "Microsoft.Synapse/workspaces/pipelines"
+}
