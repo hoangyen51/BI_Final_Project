@@ -1,0 +1,33 @@
+{
+    "name": "trigger_overall_4pm",
+    "properties": {
+        "annotations": [],
+        "runtimeState": "Started",
+        "pipelines": [
+            {
+                "pipelineReference": {
+                    "referenceName": "pl_overall",
+                    "type": "PipelineReference"
+                }
+            }
+        ],
+        "type": "ScheduleTrigger",
+        "typeProperties": {
+            "recurrence": {
+                "frequency": "Day",
+                "interval": 1,
+                "startTime": "2025-03-19T11:11:00",
+                "endTime": "2025-03-23T17:11:00",
+                "timeZone": "SE Asia Standard Time",
+                "schedule": {
+                    "minutes": [
+                        0
+                    ],
+                    "hours": [
+                        16
+                    ]
+                }
+            }
+        }
+    }
+}
