@@ -1,0 +1,72 @@
+{
+    "name": "pl_overall",
+    "properties": {
+        "activities": [
+            {
+                "name": "raw_to_bronze",
+                "type": "ExecutePipeline",
+                "dependsOn": [],
+                "policy": {
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "pipeline": {
+                        "referenceName": "pl_raw_to_bronze",
+                        "type": "PipelineReference"
+                    },
+                    "waitOnCompletion": true
+                }
+            },
+            {
+                "name": "bronze_to_silver",
+                "type": "ExecutePipeline",
+                "dependsOn": [
+                    {
+                        "activity": "raw_to_bronze",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "pipeline": {
+                        "referenceName": "pl_bronze_to_silver",
+                        "type": "PipelineReference"
+                    },
+                    "waitOnCompletion": true
+                }
+            },
+            {
+                "name": "silver_to_gold",
+                "type": "ExecutePipeline",
+                "dependsOn": [
+                    {
+                        "activity": "bronze_to_silver",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "pipeline": {
+                        "referenceName": "pl_silver_to_gold",
+                        "type": "PipelineReference"
+                    },
+                    "waitOnCompletion": true
+                }
+            }
+        ],
+        "annotations": [],
+        "lastPublishTime": "2025-03-19T17:37:24Z"
+    },
+    "type": "Microsoft.Synapse/workspaces/pipelines"
+}
